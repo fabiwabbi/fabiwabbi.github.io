@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>GLPA Encoder / Decoder (Dark Mode + Persistent)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    :root {
+      --bg: #f7fafc;
+      --fg: #0f172a;
+      --card-bg: #ffffff;
+      --card-shadow: rgba(2,6,23,0.08);
+      --btn-bg: #0ea5a4;
+      --btn-secondary: #475569;
+      --border: #e6edf3;
+    }
+    body.dark {
+      --bg: #0f172a;
+      --fg: #f7fafc;
+      --card-bg: #1e293b;
+      --card-shadow: rgba(0,0,0,0.5);
+      --btn-bg: #14b8a6;
+      --btn-secondary: #94a3b8;
+      --border: #334155;
+    }
+    body {
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 24px; background: var(--bg); color: var(--fg);
+      transition: background 0.3s, color 0.3s;
+    }
+    .card {
+      background: var(--card-bg); padding:18px; border-radius:12px;
+      box-shadow:0 6px 18px var(--card-shadow);
+      max-width:950px; margin:0 auto; transition: background 0.3s;
+    }
+    textarea {
+      width:100%; min-height:120px; padding:12px; border-radius:8px;
+      border:1px solid var(--border); resize:vertical; font-size:16px;
+      background: var(--bg); color: var(--fg);
+    }
+    .row { display:flex; gap:12px; margin-top:12px; flex-wrap:wrap; }
+    button {
+      padding:10px 14px; border-radius:8px; border:0; cursor:pointer;
+      font-weight:600; transition: background 0.3s, color 0.3s;
+    }
+    button.primary { background: var(--btn-bg); color:white; }
+    button.secondary { background: var(--btn-secondary); color:white; }
+    table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; }
+    td, th { padding:6px 8px; border:1px solid var(--border); text-align:left; }
+    footer { margin-top:14px; color:var(--btn-secondary); font-size:13px; }
+    .split { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    @media (max-width:700px){ .split { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>GLPA Encoder / Decoder (Expanded)</h2>
+    <div class="row">
+      <button id="themeBtn" class="secondary">Switch to Dark Mode</button>
+    </div>
+
+    <div>
+      <label><strong>Input</strong></label>
+      <textarea id="input" placeholder="Type English or GLPA here..."></textarea>
+    </div>
+
+    <div class="row">
+      <button id="encodeBtn" class="primary">Encode → (English → GLPA)</button>
+      <button id="decodeBtn" class="secondary">Decode → (GLPA → English)</button>
+      <button id="clearBtn" class="secondary">Clear</button>
+    </div>
+
+    <div class="split">
+      <div>
+        <label><strong>Output</strong></label>
+        <textarea id="output" readonly placeholder="Result appears here..."></textarea>
+      </div>
+      <div>
+        <label><strong>Mapping (symbol → meaning)</strong></label>
+        <table>
+          <thead><tr><th>Symbol</th><th>Meaning</th></tr></thead>
+          <tbody id="mapTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <footer>
+      Letters: 1=a … -=z | Numbers: ^0–^9 | Punctuation: !=!, ~=?, +=., ==, | Style: §=space, ¤=divider
+    </footer>
+  </div>
+
+  <script>
+    // Base GLPA mapping (letters)
+    const symToLet = {
+      "1":"a","2":"b","3":"c","4":"d","5":"e","6":"f","7":"g","8":"h","9":"i",
+      ";":"j", ":":"k", "_":"l", ".":"m", ",":"n", ">":"o", "<":"p", "/":"q", "?":"r",
+      "'":"s", "@":"t", "[":"u", "{":"w", "}":"x", "#":"y", "-":"z"
+    };
+
+    // Numbers with ^ prefix
+    const numMap = { "0":"^0","1":"^1","2":"^2","3":"^3","4":"^4","5":"^5","6":"^6","7":"^7","8":"^8","9":"^9" };
+    const symNumToDigit = { "^0":"0","^1":"1","^2":"2","^3":"3","^4":"4","^5":"5","^6":"6","^7":"7","^8":"8","^9":"9" };
+
+    // Punctuation
+    const punctEnc = { ".":"+","?":"~",",":"=","!":"!" };
+    const punctDec = { "+":".","~":"?","=":",","!":"!" };
+
+    // Style symbols
+    const styleEnc = { " ":"§" };
+    const styleDec = { "§":" ","¤":" " };
+
+    // Build reverse map (letter -> symbol)
+    const letToSym = {};
+    for(const k in symToLet){
+      letToSym[symToLet[k]] = k;
+    }
+
+    // Fill mapping table
+    const tbody = document.getElementById('mapTable');
+    const rows = Object.entries(symToLet).sort((a,b)=> a[1].localeCompare(b[1]));
+    for(const [sym,lettr] of rows){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><code>${sym}</code></td><td>${lettr}</td>`;
+      tbody.appendChild(tr);
+    }
+    for(const d in numMap){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><code>${numMap[d]}</code></td><td>${d} (number)</td>`;
+      tbody.appendChild(tr);
+    }
+    for(const [ch,sym] of Object.entries(punctEnc)){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><code>${sym}</code></td><td>${ch} (punctuation)</td>`;
+      tbody.appendChild(tr);
+    }
+    for(const [plain,sym] of Object.entries(styleEnc)){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><code>${sym}</code></td><td>${plain===' ' ? 'space' : plain}</td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.insertAdjacentHTML("beforeend", "<tr><td><code>¤</code></td><td>divider</td></tr>");
+
+    const input = document.getElementById('input');
+    const output = document.getElementById('output');
+    document.getElementById('clearBtn').addEventListener('click', ()=>{ input.value=''; output.value=''; });
+
+    // Encode English -> GLPA
+    function encodeGLPA(text){
+      let out = '';
+      for(const ch of text){
+        if(/[a-z]/i.test(ch)){
+          const lower = ch.toLowerCase();
+          out += (letToSym[lower] !== undefined) ? letToSym[lower] : ch;
+        } else if(/[0-9]/.test(ch)){
+          out += numMap[ch];
+        } else if(punctEnc[ch] !== undefined){
+          out += punctEnc[ch];
+        } else if(styleEnc[ch] !== undefined){
+          out += styleEnc[ch];
+        } else {
+          out += ch;
+        }
+      }
+      return out;
+    }
+
+    // Decode GLPA -> English
+    function decodeGLPA(text){
+      let out = '';
+      for(let i=0; i<text.length; i++){
+        const ch = text[i];
+        // Handle ^number
+        if(ch==="^" && i+1<text.length && /[0-9]/.test(text[i+1])){
+          const code = ch+text[i+1];
+          if(symNumToDigit[code]){
+            out += symNumToDigit[code];
+            i++;
+            continue;
+          }
+        }
+        if(symToLet[ch] !== undefined){
+          out += symToLet[ch];
+        } else if(punctDec[ch] !== undefined){
+          out += punctDec[ch];
+        } else if(styleDec[ch] !== undefined){
+          out += styleDec[ch];
+        } else {
+          out += ch;
+        }
+      }
+      return out;
+    }
+
+    document.getElementById('encodeBtn').addEventListener('click', ()=>{
+      output.value = encodeGLPA(input.value);
+    });
+
+    document.getElementById('decodeBtn').addEventListener('click', ()=>{
+      output.value = decodeGLPA(input.value);
+    });
+
+    input.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter' && !e.shiftKey){
+        e.preventDefault();
+        output.value = encodeGLPA(input.value);
+      }
+    });
+
+    // Theme toggle with persistence
+    const themeBtn = document.getElementById('themeBtn');
+    function applyTheme(mode){
+      if(mode === "dark"){
+        document.body.classList.add('dark');
+        themeBtn.textContent = "Switch to Light Mode";
+      } else {
+        document.body.classList.remove('dark');
+        themeBtn.textContent = "Switch to Dark Mode";
+      }
+    }
+    // Load saved theme
+    const savedTheme = localStorage.getItem('glpaTheme') || 'light';
+    applyTheme(savedTheme);
+
+    themeBtn.addEventListener('click', ()=>{
+      const newTheme = document.body.classList.contains('dark') ? 'light' : 'dark';
+      localStorage.setItem('glpaTheme', newTheme);
+      applyTheme(newTheme);
+    });
+  </script>
+</body>
+</html>
